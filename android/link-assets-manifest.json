@@ -1,0 +1,37 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/fonts/NeueMontreal-Bold.ttf",
+      "sha1": "22e8e4bd376a8eb75270e11f42fb3f6e1700eaca"
+    },
+    {
+      "path": "src/assets/fonts/NeueMontreal-BoldItalic.ttf",
+      "sha1": "f1fcff14a04c5803993c6f50d0889e3529609b09"
+    },
+    {
+      "path": "src/assets/fonts/NeueMontreal-Light.ttf",
+      "sha1": "4c2f2225f799e83f9cbb3b743d6190559d427eb3"
+    },
+    {
+      "path": "src/assets/fonts/NeueMontreal-LightItalic.ttf",
+      "sha1": "950e063fc7ca974f387c95847db25bf0316a0938"
+    },
+    {
+      "path": "src/assets/fonts/NeueMontreal-Medium.ttf",
+      "sha1": "65120fe93b3d661ff32b8183834e2437bc9b98e7"
+    },
+    {
+      "path": "src/assets/fonts/NeueMontreal-MediumItalic.ttf",
+      "sha1": "173fd02897f6c6e37c66ab18a223382ce9c6e8a2"
+    },
+    {
+      "path": "src/assets/fonts/NeueMontreal-Regular.ttf",
+      "sha1": "b15bb00acfabd8266d4474f2226005c7ebab4777"
+    },
+    {
+      "path": "src/assets/fonts/NeueMontreal-RegularItalic.ttf",
+      "sha1": "8b9bbc9e3c0b3ac8b4deca5d4c4e750ca3556390"
+    }
+  ]
+}

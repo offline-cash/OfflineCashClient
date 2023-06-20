@@ -1,0 +1,144 @@
+--- node_modules/react-native/Libraries/WebSocket/NativeWebSocketModule.js
++++ node_modules/react-native/Libraries/WebSocket/NativeWebSocketModule.js
+@@ -15,7 +15,10 @@ export interface Spec extends TurboModule {
+   +connect: (
+     url: string,
+     protocols: ?Array<string>,
+-    options: {|headers?: Object|},
++    options: {
++      headers?: Object,
++      _iosSSLTrustedRoots?: string
++    },
+     socketID: number,
+   ) => void;
+   +send: (message: string, forSocketID: number) => void;
+--- node_modules/react-native/Libraries/WebSocket/RCTSRWebSocket.m
++++ node_modules/react-native/Libraries/WebSocket/RCTSRWebSocket.m
+@@ -1302,21 +1302,61 @@ static const size_t RCTSRFrameHeaderOverhead = 32;
+   if (_secure && !_pinnedCertFound && (eventCode == NSStreamEventHasBytesAvailable || eventCode == NSStreamEventHasSpaceAvailable)) {
+     NSArray *sslCerts = _urlRequest.RCTSR_SSLPinnedCertificates;
+     if (sslCerts) {
++      // Patch inspired by https://github.com/dirkx/Security-Pinning-by-CA
++      // Thanks!
++      NSString* domain = [[_urlRequest URL] host];
++      CFStringRef domainRef = (__bridge CFStringRef) domain;
++      RCTLogInfo(@"RCTSRWebSocket: Validating against %lu pinned trust anchors. Expected hostname: %@", (unsigned long) sslCerts.count, domain);
+       SecTrustRef secTrust = (__bridge SecTrustRef)[aStream propertyForKey:(__bridge id)kCFStreamPropertySSLPeerTrust];
+       if (secTrust) {
+-        NSInteger numCerts = SecTrustGetCertificateCount(secTrust);
+-        for (NSInteger i = 0; i < numCerts && !_pinnedCertFound; i++) {
+-          SecCertificateRef cert = SecTrustGetCertificateAtIndex(secTrust, i);
+-          NSData *certData = CFBridgingRelease(SecCertificateCopyData(cert));
++        SecTrustResultType result;
++        OSStatus err = errSecSuccess;
++        CFArrayRef caChainArrayRef = (__bridge CFArrayRef) sslCerts;
+
+-          for (id ref in sslCerts) {
+-            SecCertificateRef trustedCert = (__bridge SecCertificateRef)ref;
+-            NSData *trustedCertData = CFBridgingRelease(SecCertificateCopyData(trustedCert));
++        if (err == errSecSuccess) {
++          err = SecTrustSetAnchorCertificates(secTrust, caChainArrayRef);
++        }
++
++        if (err == errSecSuccess) {
++          err = SecTrustSetAnchorCertificatesOnly(secTrust, YES);
++        }
++
++        if (err == errSecSuccess) {
++          err = SecTrustSetPolicies(secTrust, SecPolicyCreateSSL(YES, domainRef));
++        }
++
++        if (err == errSecSuccess) {
++          err = SecTrustEvaluate(secTrust, &result);
++        }
+
+-            if ([trustedCertData isEqualToData:certData]) {
++        if (err == errSecSuccess) {
++          switch (result) {
++            case kSecTrustResultProceed:
++              RCTLogInfo(@"RCTSRWebSocket: GOOD. kSecTrustResultProceed - the user explicitly trusts this CA");
+               _pinnedCertFound = YES;
++	      break;
++            case kSecTrustResultUnspecified:
++              RCTLogInfo(@"RCTSRWebSocket: GOOD. kSecTrustResultUnspecified - So things are technically trusted. But the user was not involved.");
++              _pinnedCertFound = YES;
++	      break;
++            case kSecTrustResultInvalid:
++              RCTLogInfo(@"RCTSRWebSocket: FAIL. kSecTrustResultInvalid");
++              break;
++            case kSecTrustResultDeny:
++              RCTLogInfo(@"RCTSRWebSocket: FAIL. kSecTrustResultDeny (i.e. user said no explicitly)");
++              break;
++            case kSecTrustResultFatalTrustFailure:
++              RCTLogInfo(@"RCTSRWebSocket: FAIL. kSecTrustResultFatalTrustFailure");
++              break;
++            case kSecTrustResultOtherError:
++              RCTLogInfo(@"RCTSRWebSocket: FAIL. kSecTrustResultOtherError");
++              break;
++            case kSecTrustResultRecoverableTrustFailure:
++              RCTLogInfo(@"RCTSRWebSocket: FAIL. kSecTrustResultRecoverableTrustFailure (i.e. user could say OK, but has not been asked this)");
++              break;
++            default:
++              NSAssert(NO, @"RCTSRWebSocket: Unexpected result: %d", result);
+               break;
+-            }
+           }
+         }
+       }
+--- node_modules/react-native/Libraries/WebSocket/WebSocket.js
++++ node_modules/react-native/Libraries/WebSocket/WebSocket.js
+@@ -93,7 +93,7 @@ class WebSocket extends (EventTarget(...WEBSOCKET_EVENTS): any) {
+   constructor(
+     url: string,
+     protocols: ?string | ?Array<string>,
+-    options: ?{headers?: {origin?: string, ...}, ...},
++    options: ?{headers?: {origin?: string, _iosSSLTrustedRoots?: string, ...}, ...},
+   ) {
+     super();
+     this.url = url;
+@@ -101,7 +101,7 @@ class WebSocket extends (EventTarget(...WEBSOCKET_EVENTS): any) {
+       protocols = [protocols];
+     }
+
+-    const {headers = {}, ...unrecognized} = options || {};
++    const {headers = {}, _iosSSLTrustedRoots = null, ...unrecognized} = options || {};
+
+     // Preserve deprecated backwards compatibility for the 'origin' option
+     // $FlowFixMe[prop-missing]
+@@ -140,7 +140,7 @@ class WebSocket extends (EventTarget(...WEBSOCKET_EVENTS): any) {
+     );
+     this._socketId = nextWebSocketId++;
+     this._registerEvents();
+-    NativeWebSocketModule.connect(url, protocols, {headers}, this._socketId);
++    NativeWebSocketModule.connect(url, protocols, {headers, _iosSSLTrustedRoots}, this._socketId);
+   }
+
+   get binaryType(): ?BinaryType {
+--- node_modules/react-native/React/CoreModules/RCTWebSocketModule.mm
++++ node_modules/react-native/React/CoreModules/RCTWebSocketModule.mm
+@@ -90,7 +90,24 @@ RCT_EXPORT_METHOD(connect
+     }];
+   }
+
+-  RCTSRWebSocket *webSocket = [[RCTSRWebSocket alloc] initWithURLRequest:request protocols:protocols];
++  NSMutableURLRequest *mutableRequest;
++  mutableRequest = request.mutableCopy;
++
++  if ([options._iosSSLTrustedRoots() isKindOfClass:NSString.class]) {
++    NSRange r1 = [options._iosSSLTrustedRoots() rangeOfString:@"-----BEGIN CERTIFICATE-----"];
++    NSRange r2 = [options._iosSSLTrustedRoots() rangeOfString:@"-----END CERTIFICATE-----"];
++    NSRange rSub = NSMakeRange(r1.location + r1.length, r2.location - r1.location - r1.length);
++    NSString *subCert = [options._iosSSLTrustedRoots() substringWithRange:rSub];
++
++    NSData *rawCertificate = [[NSData alloc] initWithBase64Encoding:subCert];
++    SecCertificateRef parsedCertificate = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)rawCertificate);
++
++    NSArray* certArray = @[ (__bridge id)parsedCertificate ];
++
++    [mutableRequest setRCTSR_SSLPinnedCertificates:certArray];
++  }
++
++  RCTSRWebSocket *webSocket = [[RCTSRWebSocket alloc] initWithURLRequest:mutableRequest protocols:protocols];
+   [webSocket setDelegateDispatchQueue:[self methodQueue]];
+   webSocket.delegate = self;
+   webSocket.reactTag = @(socketID);

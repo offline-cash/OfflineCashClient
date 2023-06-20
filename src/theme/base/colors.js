@@ -1,0 +1,26 @@
+const colors = {
+  primary: '#3150F5',
+  secondary: '#FFFFFF',
+  historyBg: '#F8F8F8',
+  textDescription: '#68606CB3',
+  text: '#1C1A1D',
+  statusText: '#756C79',
+  statusBg: '#F2F2F3',
+  statusLoadedBg: '#00CC59',
+  divider: '#ECECEE',
+  positive: '#00CC59',
+  negative: '#FE7766',
+  addressBox: '#3150F51A',
+  bottomSheetText: '#262028',
+  bottomSheetTextGrey: '#26202873',
+  borderDashed: '#2620281A',
+  fundsBg: '#3150F51A',
+  inputBg: '#F5F4F6',
+  placeholderText: '#0000004D',
+  loadBtnBg: '#3150F514',
+  available: '#26202866',
+  warning: '#EBC604',
+  scanModalBg: '#D3D3D3',
+};
+
+export default colors;
